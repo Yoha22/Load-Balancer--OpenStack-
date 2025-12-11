@@ -72,30 +72,172 @@ Este comando configura MicroStack automáticamente como nodo de control. Durante
 
 **Nota**: El proceso de inicialización puede tardar varios minutos. Asegúrate de tener suficiente espacio en disco y recursos del sistema disponibles.
 
+**⚠️ Errores comunes durante la inicialización**:
+
+1. **Error de nginx**: Si ves un error como `subprocess.CalledProcessError: Command 'snapctl restart microstack.nginx' returned non-zero exit status 1`, esto generalmente **NO es crítico**. MicroStack puede seguir funcionando correctamente a pesar de este error.
+
+2. **Proceso estancado en "waiting 192.168.x.x:9696"**: Si el proceso se queda esperando en una línea como "waiting 192.168.1.90:9696" (puerto 9696 es Neutron API), esto significa que MicroStack está intentando conectarse al servicio de red pero no puede. Este es un problema más serio. Ver soluciones más abajo.
+
+Continúa con el paso 1.3 para verificar si MicroStack está funcionando después de que termine la inicialización (o después de aplicar las soluciones si se estanca).
+
 ### 1.3 Verificar Instalación
 
 Una vez completada la instalación, verifica el estado:
 
 ```bash
-# Verificar estado de los servicios
-sudo microstack status
+# Verificar estado de los servicios de snap
+sudo snap services microstack
+
+# Configurar variables de entorno (necesario para usar OpenStack CLI)
+source /var/snap/microstack/common/etc/admin-openrc.sh
+
+# Verificar servicios de OpenStack usando CLI
+openstack service list
 ```
 
-Deberías ver todos los servicios de OpenStack corriendo correctamente.
+Deberías ver una lista de servicios de OpenStack (Nova, Neutron, Glance, Keystone, etc.) corriendo correctamente.
+
+**Nota sobre servicios deshabilitados**: Si ves que algún servicio como `glance-api` está `disabled inactive`, no es crítico para empezar. Los servicios principales (`keystone`, `nova-api`, `neutron-api`) son los más importantes y deben estar `enabled active`. Si necesitas `glance-api` (para gestionar imágenes), puedes habilitarlo después:
+
+```bash
+# Para habilitar glance-api si es necesario
+sudo snap set microstack config.glance.enabled=true
+sudo snap restart microstack
+```
+
+**Si viste un error durante la inicialización**, verifica ahora si MicroStack está funcionando:
+
+```bash
+# Ver estado de los servicios de snap
+sudo snap services microstack
+
+# Configurar variables de entorno
+source /var/snap/microstack/common/etc/admin-openrc.sh
+
+# Verificar acceso CLI - esto es la mejor forma de verificar que OpenStack funciona
+openstack service list
+
+# También puedes verificar los endpoints
+openstack endpoint list
+```
+
+**⚠️ Problema detectado**: Si ves que muchos servicios están `disabled` e `inactive`, significa que la inicialización no se completó correctamente. Esto también puede causar que el archivo `admin-openrc.sh` no exista.
+
+**Solución para completar la inicialización**:
+
+1. **Verificar si hay conflictos de puerto (Apache2 puede estar usando el puerto 80)**:
+```bash
+# Verificar si Apache2 está corriendo
+sudo systemctl status apache2
+
+# Si está corriendo y no lo necesitas, deténlo temporalmente
+sudo systemctl stop apache2
+sudo systemctl disable apache2
+```
+
+2. **Reiniciar MicroStack para completar la inicialización**:
+```bash
+# Reiniciar todos los servicios de MicroStack
+sudo snap restart microstack
+
+# Esperar unos minutos y verificar el estado
+sleep 30
+sudo snap services microstack
+```
+
+3. **Si aún hay problemas, verifica los logs**:
+```bash
+# Ver logs de nginx (el servicio que causó el error)
+sudo journalctl -u snap.microstack.nginx -n 100 --no-pager
+
+# Ver todos los logs de MicroStack
+sudo snap logs microstack -n 200
+```
+
+4. **Si la inicialización no se completa después de reiniciar, necesitas reinicializar MicroStack completamente**:
+
+⚠️ **ADVERTENCIA IMPORTANTE**: Esto eliminará todos los datos existentes, instancias, redes y configuraciones de OpenStack.
+
+```bash
+# Paso 1: Remover MicroStack y limpiar datos
+sudo microstack.remove
+
+# Paso 2: Remover el snap completamente
+sudo snap remove microstack
+
+# Paso 3: Verificar que se removió completamente
+sudo snap list | grep microstack
+
+# Paso 4: Reinstalar MicroStack
+sudo snap install microstack --beta
+
+# Paso 5: Inicializar MicroStack (esto puede tardar varios minutos)
+sudo microstack init --auto --control
+
+# Paso 6: Esperar a que termine la inicialización y verificar
+sleep 30
+sudo snap services microstack | grep -E "(keystone|nova-api|neutron-api|glance-api)"
+```
+
+**Nota sobre el proceso de reinicialización**:
+- El proceso `microstack init` puede tardar entre 5-15 minutos
+- Durante la inicialización, verás muchos mensajes INFO en la pantalla
+- Si ves el error de nginx nuevamente, espera a que termine el proceso y verifica el estado de los servicios
+- Al finalizar, deberías ver los servicios principales como `enabled` y `active`
+
+5. **Después de completar la inicialización, verifica que los servicios estén activos**:
+```bash
+# Deberías ver la mayoría de servicios como 'enabled' y 'active'
+sudo snap services microstack | grep -E "(keystone|nova|neutron|glance)"
+```
+
+Una vez que los servicios estén activos, las credenciales y el archivo `admin-openrc.sh` deberían estar disponibles.
 
 ### 1.4 Configurar Variables de Entorno
 
-Para usar los comandos CLI de OpenStack, necesitas configurar las variables de entorno:
+Para usar los comandos CLI de OpenStack, necesitas configurar las variables de entorno. En MicroStack, el archivo de credenciales generalmente está en `/var/snap/microstack/common/etc/microstack.rc`.
+
+**Método 1: Usar el archivo microstack.rc (recomendado)**
 
 ```bash
-source /var/snap/microstack/common/etc/admin-openrc.sh
+# Verificar que el archivo existe
+ls -la /var/snap/microstack/common/etc/microstack.rc
+
+# Cargar las variables de entorno
+source /var/snap/microstack/common/etc/microstack.rc
+
+# Verificar que funciona
+openstack --version
 ```
 
-Puedes agregar esta línea a tu archivo `~/.bashrc` para que se cargue automáticamente en cada sesión:
+**Método 2: Agregar a tu ~/.bashrc para cargar automáticamente**
 
 ```bash
-echo "source /var/snap/microstack/common/etc/admin-openrc.sh" >> ~/.bashrc
+# Agregar al archivo de configuración del shell
+echo "source /var/snap/microstack/common/etc/microstack.rc" >> ~/.bashrc
+
+# Cargar en la sesión actual
 source ~/.bashrc
+
+# Verificar que funciona
+openstack service list
+```
+
+**Método 3: Si el archivo microstack.rc no existe, obtener credenciales del snapshot**
+
+```bash
+# Ver la contraseña de Keystone
+sudo snap get microstack config.credentials.keystone-password
+
+# Configurar variables manualmente (reemplaza con la contraseña obtenida)
+export OS_AUTH_URL=http://localhost:5000/v3
+export OS_IDENTITY_API_VERSION=3
+export OS_PROJECT_DOMAIN_ID=default
+export OS_USER_DOMAIN_ID=default
+export OS_PROJECT_NAME=admin
+export OS_USERNAME=admin
+export OS_PASSWORD=<CONTRASEÑA_OBTENIDA>
+export OS_REGION_NAME=microstack
 ```
 
 ### 1.5 Verificar Acceso CLI
@@ -483,6 +625,229 @@ Al finalizar esta guía, deberías tener:
 Una vez completada esta configuración, procede con la **Guía 2: Configuración de Servidores Web Backend**.
 
 ## Troubleshooting
+
+### Problema: Error durante `microstack init` - "snapctl restart microstack.nginx returned non-zero exit status 1"
+
+**Síntoma**: Durante la inicialización con `sudo microstack init --auto --control`, aparece un error relacionado con `snapctl restart microstack.nginx`.
+
+**Explicación**: Este es un error común durante la inicialización de MicroStack. A menudo ocurre cuando MicroStack intenta reiniciar el servicio nginx pero encuentra algún conflicto o el servicio aún no está completamente inicializado.
+
+**Solución paso a paso**:
+
+1. **Verifica si MicroStack está funcionando a pesar del error** (en muchos casos, MicroStack funciona correctamente):
+```bash
+# Ver servicios de snap (esta es la forma correcta de verificar el estado)
+sudo snap services microstack
+
+# Configurar variables de entorno
+source /var/snap/microstack/common/etc/admin-openrc.sh
+
+# Verificar acceso CLI - esta es la mejor forma de confirmar que OpenStack funciona
+openstack service list
+
+# Ver endpoints disponibles
+openstack endpoint list
+```
+
+2. **Si MicroStack está funcionando**, simplemente continúa con los siguientes pasos. El error de nginx generalmente no afecta la funcionalidad principal.
+
+3. **Si MicroStack NO está funcionando**, intenta estas soluciones:
+
+   **Solución A: Reiniciar MicroStack**
+   ```bash
+   sudo snap restart microstack
+   sudo snap services microstack
+   source /var/snap/microstack/common/etc/admin-openrc.sh
+   openstack service list
+   ```
+
+   **Solución B: Ver logs para diagnóstico**
+   ```bash
+   sudo journalctl -u snap.microstack.* -n 100 --no-pager
+   sudo snap logs microstack -n 100
+   ```
+
+   **Solución C: Reinicializar (elimina datos existentes)**
+   ```bash
+   # Solo si nada más funciona
+   sudo microstack.remove
+   sudo snap remove microstack
+   sudo snap install microstack --beta
+   sudo microstack init --auto --control
+   ```
+
+4. **Si el problema persiste con nginx**, puedes intentar reiniciar nginx manualmente:
+   ```bash
+   sudo snap restart microstack.nginx
+   # O si eso falla:
+   sudo snap stop microstack.nginx
+   sudo snap start microstack.nginx
+   ```
+
+**Conclusión**: En la mayoría de los casos, este error no es crítico y MicroStack funciona correctamente. Verifica siempre con `sudo snap services microstack` y `openstack service list` antes de intentar soluciones más drásticas.
+
+### Problema: El proceso `microstack init` se estanca en "waiting 192.168.x.x:9696"
+
+**Síntoma**: Durante `sudo microstack init --auto --control`, el proceso se queda esperando indefinidamente en una línea que dice algo como "waiting 192.168.1.90:9696" o similar. El puerto 9696 es el puerto por defecto de Neutron API (servicio de red de OpenStack).
+
+**Explicación**: Este problema ocurre cuando MicroStack intenta conectarse al servicio Neutron API pero no puede establecer la conexión. Puede deberse a:
+- El servicio Neutron aún no está completamente inicializado
+- Problemas de red o configuración de red
+- Conflictos de puertos
+- Timeouts en la inicialización
+
+**Soluciones paso a paso**:
+
+1. **Esperar más tiempo (primero intenta esto)**:
+   - El proceso puede tardar mucho tiempo (hasta 15-30 minutos en algunos casos)
+   - Si lleva menos de 10 minutos esperando, deja que continúe
+   - MicroStack puede estar inicializando servicios en segundo plano
+
+2. **Si lleva más de 20-30 minutos estancado, interrumpe y verifica**:
+   ```bash
+   # Presiona Ctrl+C para interrumpir el proceso
+   # Luego verifica qué servicios están corriendo
+   sudo snap services microstack
+   
+   # Ver logs para diagnosticar
+   sudo snap logs microstack -n 100
+   sudo journalctl -u snap.microstack.* -n 100 --no-pager
+   ```
+
+3. **Reiniciar servicios y reintentar la inicialización**:
+   ```bash
+   # Detener todos los servicios de MicroStack
+   sudo snap stop microstack
+   
+   # Limpiar posibles archivos de bloqueo
+   sudo rm -rf /var/snap/microstack/common/run/*
+   
+   # Reiniciar servicios
+   sudo snap start microstack
+   
+   # Esperar un poco
+   sleep 30
+   
+   # Reintentar la inicialización
+   sudo microstack init --auto --control
+   ```
+
+4. **Si el problema persiste, reinicializar completamente**:
+   ```bash
+   # Interrumpir el proceso (Ctrl+C si está corriendo)
+   
+   # Remover MicroStack completamente
+   sudo microstack.remove
+   sudo snap remove microstack
+   
+   # Verificar que no haya procesos residuales
+   sudo ps aux | grep microstack
+   
+   # Limpiar posibles archivos residuales (opcional, ten cuidado)
+   sudo rm -rf /var/snap/microstack
+   
+   # Reinstalar
+   sudo snap install microstack --beta
+   
+   # Asegurarse de que Apache2 no esté corriendo
+   sudo systemctl stop apache2
+   sudo systemctl disable apache2
+   
+   # Verificar puertos en conflicto
+   sudo netstat -tulpn | grep -E "(9696|8774|5000)"
+   
+   # Inicializar nuevamente
+   sudo microstack init --auto --control
+   ```
+
+5. **Verificar conectividad de red**:
+   ```bash
+   # Verificar que la interfaz de red esté configurada correctamente
+   ip addr show
+   
+   # Verificar que puedas hacer ping a la IP que aparece en el mensaje
+   ping -c 3 192.168.1.90  # Reemplaza con la IP que ves en el mensaje
+   
+   # Verificar que el puerto 9696 esté disponible
+   sudo netstat -tulpn | grep 9696
+   ```
+
+6. **Solución alternativa: Inicialización manual (avanzado)**:
+   Si el problema persiste, puedes intentar inicializar servicios individualmente, pero esto es más complejo y generalmente no es necesario.
+
+**Consejos adicionales**:
+- Si estás en una máquina virtual, asegúrate de tener suficiente RAM (mínimo 8GB recomendado para MicroStack)
+- Verifica que tengas espacio en disco suficiente (mínimo 20GB libres)
+- Cierra otras aplicaciones que puedan estar consumiendo recursos
+
+**Si nada funciona**: MicroStack puede tener problemas de compatibilidad con tu sistema. Considera verificar la versión de Ubuntu y los recursos disponibles, o buscar ayuda en los foros oficiales de MicroStack.
+
+### Problema: Muchos servicios están `disabled` e `inactive` y el archivo `admin-openrc.sh` no existe
+
+**Síntoma**: 
+- `sudo snap services microstack` muestra que muchos servicios están `disabled` e `inactive`
+- El comando `source /var/snap/microstack/common/etc/admin-openrc.sh` falla con "No such file or directory"
+- Los servicios principales como `keystone`, `nova-api`, `neutron-api` están inactivos
+
+**Explicación**: Esto indica que la inicialización de MicroStack no se completó correctamente. Los servicios se deshabilitan automáticamente si la inicialización falla en algún punto.
+
+**Solución paso a paso**:
+
+1. **Verificar conflictos de puerto (Apache2 puede estar bloqueando el puerto 80)**:
+```bash
+# Verificar si Apache2 está corriendo
+sudo systemctl status apache2
+
+# Si está corriendo y no lo necesitas para otra cosa, deténlo
+sudo systemctl stop apache2
+sudo systemctl disable apache2
+
+# Verificar qué está usando el puerto 80
+sudo netstat -tulpn | grep :80
+# O
+sudo ss -tulpn | grep :80
+```
+
+2. **Reiniciar MicroStack para intentar completar la inicialización**:
+```bash
+# Reiniciar todos los servicios
+sudo snap restart microstack
+
+# Esperar unos minutos para que se inicialicen
+sleep 60
+
+# Verificar estado nuevamente
+sudo snap services microstack
+```
+
+3. **Si los servicios siguen inactivos, reinicializa MicroStack**:
+```bash
+# ADVERTENCIA: Esto eliminará todos los datos e instancias existentes
+sudo microstack.remove
+sudo snap remove microstack
+sudo snap install microstack --beta
+sudo microstack init --auto --control
+```
+
+4. **Después de la reinicialización, verifica que los servicios estén activos**:
+```bash
+# Verificar servicios principales
+sudo snap services microstack | grep -E "(keystone|nova-api|neutron-api|glance-api)"
+
+# Deberían estar 'enabled' y 'active'
+```
+
+5. **Buscar el archivo de credenciales después de la inicialización completa**:
+```bash
+# Buscar archivos de credenciales
+sudo find /snap/microstack -name "*openrc*" 2>/dev/null
+sudo find /var/snap/microstack -name "*openrc*" 2>/dev/null
+
+# O verificar la contraseña directamente
+sudo snap get microstack config.credentials.keystone-password
+```
+
+**Nota**: Si MicroStack se inicializa correctamente, el archivo de credenciales debería crearse automáticamente. Si aún no existe después de una inicialización exitosa, puedes configurar las variables de entorno manualmente usando la contraseña obtenida con `snap get`.
 
 ### Problema: No puedo crear la red
 - **Solución**: Verifica que tengas permisos de administrador o de creación de redes en el proyecto.
