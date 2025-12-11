@@ -7,6 +7,8 @@ Esta guía te ayudará a implementar un balanceador de carga completo usando HAP
 Esta guía está organizada en los siguientes documentos:
 
 1. **[01-openstack-setup.md](01-openstack-setup.md)** - Configuración inicial de OpenStack
+   - Configuración del entorno: Ubuntu Server con interfaz gráfica (XFCE + lightdm)
+   - Instalación de OpenStack usando MicroStack con snap
    - Creación de red y subred
    - Creación de router
    - Configuración de grupos de seguridad
@@ -71,8 +73,15 @@ Esta guía está organizada en los siguientes documentos:
 
 ## 🚀 Inicio Rápido
 
+### Paso 0: Configurar el Entorno Base
+Antes de comenzar, asegúrate de tener:
+- Ubuntu Server instalado con interfaz gráfica XFCE
+- lightdm configurado como display manager
+- MicroStack instalado usando snap
+
 ### Paso 1: Configurar OpenStack
 Sigue la guía [01-openstack-setup.md](01-openstack-setup.md) para:
+- Instalar y configurar MicroStack
 - Crear la red y subred
 - Configurar el router
 - Crear grupos de seguridad
@@ -116,9 +125,28 @@ Ver [scripts/README.md](scripts/README.md) para más información.
 
 ## 🔧 Requisitos
 
-- OpenStack configurado y accesible
+### Requisitos del Sistema Base
+
+- **Ubuntu Server** instalado (recomendado: Ubuntu 22.04 LTS o superior)
+- **Interfaz gráfica XFCE** instalada y configurada con **lightdm**
+  - XFCE proporciona una interfaz gráfica ligera para el servidor
+  - lightdm es el display manager que inicia automáticamente la sesión gráfica (no se usa `startx`)
+- **MicroStack** instalado y configurado
+  - Instalación mediante snap: `snap install microstack --beta`
+  - Inicialización: `sudo microstack init --auto --control`
+- Acceso root o sudo en el sistema
+- Conexión a Internet para la instalación de paquetes
+
+### Requisitos de OpenStack
+
+- OpenStack (MicroStack) configurado y accesible
+- Variables de entorno configuradas para CLI de OpenStack
+- Acceso al dashboard Horizon (opcional pero recomendado)
+
+### Requisitos de Instancias
+
 - Acceso SSH a las instancias
-- Imagen de Ubuntu Server 22.04 LTS (o similar)
+- Imagen de Ubuntu Server 22.04 LTS (o similar) disponible en OpenStack
 - Mínimo 3 instancias:
   - 1 para el balanceador
   - 2+ para servidores backend

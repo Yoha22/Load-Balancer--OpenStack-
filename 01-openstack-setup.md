@@ -4,15 +4,132 @@ Esta guía te ayudará a configurar OpenStack para crear las instancias necesari
 
 ## Prerrequisitos
 
-- Acceso al dashboard de OpenStack (Horizon) o CLI de OpenStack
-- Credenciales de acceso (usuario, contraseña, proyecto)
-- Permisos para crear redes, routers e instancias
+- Ubuntu Server instalado
+- Acceso root o sudo
+- Conexión a Internet
 
-## Paso 1: Crear Red y Subred
+## Paso 0: Configuración del Entorno - Ubuntu Server con Interfaz Gráfica
 
-### 1.1 Crear Red Privada
+Esta guía asume que estás usando Ubuntu Server con interfaz gráfica XFCE configurada con lightdm.
+
+### 0.1 Instalar Interfaz Gráfica XFCE
+
+```bash
+sudo apt update
+sudo apt install xfce4 xfce4-goodies -y
+```
+
+Esto instalará el entorno de escritorio XFCE junto con aplicaciones adicionales útiles.
+
+### 0.2 Instalar y Configurar lightdm
+
+```bash
+sudo apt install lightdm -y
+sudo systemctl enable lightdm
+```
+
+**Nota Importante**: Usamos `lightdm` como display manager en lugar de `startx` porque lightdm es más adecuado para entornos de servidor y proporciona un mejor manejo de sesiones gráficas. Lightdm se encarga automáticamente de iniciar la sesión gráfica al arrancar el sistema, a diferencia de `startx` que requiere iniciarse manualmente.
+
+### 0.3 Reiniciar y Verificar
+
+```bash
+sudo reboot
+```
+
+Después del reinicio, se iniciará automáticamente la interfaz gráfica XFCE usando lightdm. Verás la pantalla de inicio de sesión de lightdm, donde podrás ingresar con tu usuario y contraseña.
+
+### 0.4 Verificar la Instalación
+
+Una vez iniciada la sesión gráfica, puedes verificar que todo funciona correctamente:
+
+- La interfaz gráfica XFCE debería estar activa
+- Puedes abrir aplicaciones desde el menú
+- Puedes acceder a la terminal gráfica
+
+## Paso 1: Instalación de OpenStack con MicroStack
+
+MicroStack es una distribución de OpenStack simplificada que se instala fácilmente usando snap. Está diseñada para entornos de desarrollo, pruebas y despliegues pequeños.
+
+### 1.1 Instalar MicroStack
+
+```bash
+snap install microstack --beta
+```
+
+Este comando instalará MicroStack desde el canal beta de snap. La instalación puede tomar varios minutos dependiendo de tu conexión a Internet y el rendimiento del sistema.
+
+### 1.2 Inicializar MicroStack
+
+```bash
+sudo microstack init --auto --control
+```
+
+Este comando configura MicroStack automáticamente como nodo de control. Durante la inicialización, MicroStack:
+- Configura los servicios principales de OpenStack (Nova, Neutron, Glance, etc.)
+- Crea una red por defecto
+- Configura las credenciales de administrador
+- Establece la configuración básica necesaria
+
+**Nota**: El proceso de inicialización puede tardar varios minutos. Asegúrate de tener suficiente espacio en disco y recursos del sistema disponibles.
+
+### 1.3 Verificar Instalación
+
+Una vez completada la instalación, verifica el estado:
+
+```bash
+# Verificar estado de los servicios
+sudo microstack status
+```
+
+Deberías ver todos los servicios de OpenStack corriendo correctamente.
+
+### 1.4 Configurar Variables de Entorno
+
+Para usar los comandos CLI de OpenStack, necesitas configurar las variables de entorno:
+
+```bash
+source /var/snap/microstack/common/etc/admin-openrc.sh
+```
+
+Puedes agregar esta línea a tu archivo `~/.bashrc` para que se cargue automáticamente en cada sesión:
+
+```bash
+echo "source /var/snap/microstack/common/etc/admin-openrc.sh" >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 1.5 Verificar Acceso CLI
+
+Prueba que el CLI de OpenStack funciona correctamente:
+
+```bash
+openstack --version
+openstack service list
+```
+
+Deberías ver la versión de OpenStack y una lista de servicios disponibles.
+
+### 1.6 (Opcional) Acceder al Dashboard Horizon
+
+MicroStack puede configurar el dashboard web de Horizon. Para verificar si está disponible:
+
+```bash
+sudo microstack.openstack endpoint list | grep -i horizon
+```
+
+Si Horizon está disponible, puedes acceder desde un navegador usando la URL mostrada. Las credenciales por defecto generalmente son:
+- Usuario: `admin`
+- Contraseña: Verifica con `sudo snap get microstack config.credentials.keystone-password` o revisa la salida de `microstack init`
+
+**Nota importante sobre MicroStack**: Los comandos CLI de OpenStack que se usarán en los siguientes pasos funcionan de la misma manera con MicroStack, ya que MicroStack implementa las mismas APIs de OpenStack estándar. Si prefieres usar el dashboard (Horizon), también puedes hacerlo desde la interfaz gráfica, pero esta guía se enfoca principalmente en el uso de CLI.
+
+## Paso 2: Crear Red y Subred
+
+### 2.1 Crear Red Privada
 
 **Opción A: Desde el Dashboard (Horizon)**
+
+**Nota para MicroStack**: Si Horizon no está disponible o prefieres usar solo CLI, puedes usar la Opción B (CLI). Los comandos CLI funcionan de la misma manera con MicroStack.
 
 1. Inicia sesión en el dashboard de OpenStack
 2. Ve a **Network** → **Networks**
@@ -28,7 +145,7 @@ Esta guía te ayudará a configurar OpenStack para crear las instancias necesari
 openstack network create load-balancer-network
 ```
 
-### 1.2 Crear Subred
+### 2.2 Crear Subred
 
 **Opción A: Desde el Dashboard**
 
@@ -56,9 +173,9 @@ openstack subnet create \
   load-balancer-subnet
 ```
 
-## Paso 2: Crear Router
+## Paso 3: Crear Router
 
-### 2.1 Crear Router
+### 3.1 Crear Router
 
 **Opción A: Desde el Dashboard**
 
@@ -83,7 +200,9 @@ openstack router create load-balancer-router
 openstack router set --external-gateway <EXTERNAL_NETWORK_ID> load-balancer-router
 ```
 
-### 2.2 Conectar Router a la Subred
+**Nota para MicroStack**: MicroStack puede crear una red externa automáticamente durante la inicialización. Usa `openstack network list --external` para ver las redes externas disponibles. En MicroStack, la red externa suele llamarse `external` o tener un nombre similar.
+
+### 3.2 Conectar Router a la Subred
 
 **Opción A: Desde el Dashboard**
 
@@ -101,9 +220,9 @@ openstack router set --external-gateway <EXTERNAL_NETWORK_ID> load-balancer-rout
 openstack router add subnet load-balancer-router load-balancer-subnet
 ```
 
-## Paso 3: Configurar Grupos de Seguridad
+## Paso 4: Configurar Grupos de Seguridad
 
-### 3.1 Crear Grupo de Seguridad para Balanceador
+### 4.1 Crear Grupo de Seguridad para Balanceador
 
 **Opción A: Desde el Dashboard**
 
@@ -168,7 +287,7 @@ openstack security group rule create \
   load-balancer-sg
 ```
 
-### 3.2 Crear Grupo de Seguridad para Backend Servers
+### 4.2 Crear Grupo de Seguridad para Backend Servers
 
 **Opción A: Desde el Dashboard**
 
@@ -199,9 +318,9 @@ openstack security group rule create \
   backend-servers-sg
 ```
 
-## Paso 4: Crear Instancias
+## Paso 5: Crear Instancias
 
-### 4.1 Crear Instancia del Balanceador
+### 5.1 Crear Instancia del Balanceador
 
 **Opción A: Desde el Dashboard**
 
@@ -253,7 +372,7 @@ openstack server create \
   load-balancer
 ```
 
-### 4.2 Crear Instancias Backend (Mínimo 2)
+### 5.2 Crear Instancias Backend (Mínimo 2)
 
 Repite el proceso anterior para crear al menos 2 instancias backend:
 
@@ -284,9 +403,9 @@ openstack server create \
   web-backend-2
 ```
 
-## Paso 5: Asignar IPs Flotantes
+## Paso 6: Asignar IPs Flotantes
 
-### 5.1 Asignar IP Flotante al Balanceador
+### 6.1 Asignar IP Flotante al Balanceador
 
 **Opción A: Desde el Dashboard**
 
@@ -307,13 +426,15 @@ openstack floating ip create <EXTERNAL_NETWORK_NAME>
 openstack server add floating ip load-balancer <FLOATING_IP>
 ```
 
-### 5.2 (Opcional) Asignar IPs Flotantes a Backend Servers
+**Nota para MicroStack**: En MicroStack, las IPs flotantes se gestionan de la misma manera que en OpenStack estándar. Asegúrate de que la red externa esté configurada correctamente antes de crear IPs flotantes.
+
+### 6.2 (Opcional) Asignar IPs Flotantes a Backend Servers
 
 Para facilitar el acceso directo a los servidores backend, puedes asignarles IPs flotantes también.
 
-## Paso 6: Verificar Configuración
+## Paso 7: Verificar Configuración
 
-### 6.1 Verificar Estado de las Instancias
+### 7.1 Verificar Estado de las Instancias
 
 ```bash
 openstack server list
@@ -321,7 +442,7 @@ openstack server list
 
 Todas las instancias deben estar en estado `ACTIVE`.
 
-### 6.2 Verificar Conectividad de Red
+### 7.2 Verificar Conectividad de Red
 
 ```bash
 # Ver detalles de la red
@@ -334,7 +455,7 @@ openstack subnet show load-balancer-subnet
 openstack router show load-balancer-router
 ```
 
-### 6.3 Probar Conectividad SSH
+### 7.3 Probar Conectividad SSH
 
 ```bash
 # Conectarse al balanceador
